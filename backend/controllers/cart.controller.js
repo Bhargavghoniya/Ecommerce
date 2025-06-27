@@ -5,63 +5,71 @@ const {Product} = require('../model/Product');
 const { model } = require('mongoose');
 
 
-// const cart = async(req,res)=>{
-//     try{
-//         const {token} = req.headers;
-//         const decodedToken = jwt.verify(token,"supersecret");
-//         const user = await User.findOne({email:decodedToken.email}).populate({
-//             path:'cart',
-//             populate:{
-//                 path:'products',
-//                 model:'Product'
-//             }
-//         })
-//         if(!user){
-//             res.status(400).json({
-//                 message:"User not found"
-//             })
-//         }
-//         res.status(200).json({
-//             message:"cart fetch successfully",
-//             cart:user.cart
-//         })
-            
-//     }catch(error){
-//        console.log(error);
-//        res.status(400).json({
-//            message:"Internal server error"
-//        })
-//     }
-// }
-
 
 
 const cart = async (req, res) => {
-    try {
-        const { token } = req.headers;
-        const decodedToken = jwt.verify(token, "supersecret");
+  try {
+    const { token } = req.headers;
+    const decodedToken = jwt.verify(token, "supersecret");
 
-        const user = await User.findOne({ email: decodedToken.email });
-        if (!user) {
-            return res.status(400).json({
-                message: "User not found"
-            });
-        }
+    const user = await User.findOne({ email: decodedToken.email }).populate({
+      path: 'cart',
+      populate: {
+        path: 'products.product',
+        model: 'Product'
+      }
+    });
 
-        const userCart = await Cart.findById(user.cart).populate('products.product');
-
-        res.status(200).json({
-            message: "cart fetch successfully",
-            cart: userCart
-        });
-
-    } catch (error) {
-        console.log(error);
-        res.status(400).json({
-            message: "Internal server error"
-        });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
+
+    if (!user.cart || user.cart.products.length === 0) {
+      return res.status(204).json({ message: "No Cart Items" });
+    }
+
+    return res.status(200).json({
+      message: `Cart Items retrieved successfully! - ${user.cart.products.length}`,
+      cart: user.cart
+    });
+
+  } catch (error) {
+    console.log(error.message);
+    return res.status(500).json({
+      message: "Internal Server Error"
+    });
+  }
 };
+
+
+
+
+// const cart = async (req, res) => {
+//     try {
+//         const { token } = req.headers;
+//         const decodedToken = jwt.verify(token, "supersecret");
+
+//         const user = await User.findOne({ email: decodedToken.email });
+//         if (!user) {
+//             return res.status(400).json({
+//                 message: "User not found"
+//             });
+//         }
+
+//         const userCart = await Cart.findById(user.cart).populate('products.product');
+
+//         res.status(200).json({
+//             message: "cart fetch successfully",
+//             cart: userCart
+//         });
+
+//     } catch (error) {
+//         console.log(error);
+//         res.status(400).json({
+//             message: "Internal server error"
+//         });
+//     }
+// };
 
 
 
@@ -126,6 +134,130 @@ const addCart = async (req, res) => {
 };
 
 
+
+
+
+const updateCart = async (req, res) => {
+  try {
+    const { productId, action } = req.body; // 'increase', 'decrease', 'remove'
+    const { token } = req.headers;
+
+    const decoded = jwt.verify(token, "supersecret");
+
+    const user = await User.findOne({ email: decoded.email }).populate({
+      path: "cart",
+      populate: {
+        path: "products.product",
+        model: "Product"
+      }
+    });
+
+    if (!user || !user.cart) {
+      return res.status(404).json({ message: "Cart not found" });
+    }
+
+    const cart = user.cart;
+    const item = cart.products.find(p => p.product._id.toString() === productId);
+
+    if (!item) {
+      return res.status(404).json({ message: "Product not found in cart" });
+    }
+
+    const price = Number(item.product.price);
+
+    if (action === "increase") {
+      item.quantity += 1;
+      cart.total += price;
+    } else if (action === "decrease") {
+      if (item.quantity > 1) {
+        item.quantity -= 1;
+        cart.total -= price;
+      } else {
+        cart.total -= price;
+        cart.products = cart.products.filter(
+          p => p.product._id.toString() !== productId
+        );
+      }
+    } else if (action === "remove") {
+      cart.total -= price * item.quantity;
+      cart.products = cart.products.filter(
+        p => p.product._id.toString() !== productId
+      );
+    } else {
+      return res.status(400).json({ message: "Invalid action" });
+    }
+
+    await cart.save();
+
+    res.status(200).json({ message: "Cart updated", cart });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Something went wrong", error });
+  }
+};
+
+
+
+
+
+// app.post("/cart/payment", async (req, res) => {
+//   const { token } = req.headers;
+
+//   try {
+//     const decodedToken = jwt.verify(token, "supersecret");
+
+//     const user = await User.findOne({ email: decodedToken.email }).populate({
+//       path: "cart",
+//       populate: {
+//         path: "products.product",
+//         model: "Product",
+//       },
+//     });
+
+//     if (!user || !user.cart || user.cart.products.length === 0) {
+//       return res.status(404).json({ message: "User or Cart Not Found" });
+//     }
+
+//     const lineItems = user.cart.products.map((item) => ({
+//       price_data: {
+//         currency: "inr",
+//         product_data: {
+//           name: item.product.name,
+//         },
+//         unit_amount: item.product.price * 100, // Stripe takes amount in paisa
+//       },
+//       quantity: item.quantity,
+//     }));
+
+//     const session = await stripe.checkout.sessions.create({
+//       payment_method_types: ["card"],
+//       line_items: lineItems,
+//       mode: "payment",
+//       success_url: `${process.env.CLIENT_URL}/success`,
+//       cancel_url: `${process.env.CLIENT_URL}/cancel`,
+//     });
+
+//     // Empty the cart
+//     user.cart.products = [];
+//     user.cart.total = 0;
+//     await user.cart.save();
+//     await user.save();
+
+//     res.status(200).json({ url: session.url });
+
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ message: "Payment Failed", error });
+//   }
+// });
+
+
+
+
+
+
+
 const removeCart = async (req, res) => {
     try {
         let { id } = req.params;
@@ -158,4 +290,4 @@ const removeCart = async (req, res) => {
 
 
 
-module.exports = {cart,addCart,removeCart};
+module.exports = {cart,addCart,updateCart,removeCart};
