@@ -7,6 +7,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const routes = require('./routes/index');
 const cartRoutes = require("./routes/cart");
+//const dotenv = require('dotenv').config();
 
 //db
 connectedDB();

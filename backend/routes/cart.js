@@ -1,5 +1,5 @@
 const express = require('express');
-const { cart, addCart, removeCart, updateCart } = require('../controllers/cart.controller');
+const { cart, addCart, removeCart, updateCart, payment } = require('../controllers/cart.controller');
 const { createPaymentOrder } = require('../controllers/payment.controller');
 const router = express.Router();
 
@@ -14,6 +14,7 @@ router.delete('/deleteCart/:id',removeCart);
 
 
 //payment
-router.post("/cart/payment", createPaymentOrder);
+router.post("/payment", createPaymentOrder);
+//router.post('/cart/payment',payment);
 
 module.exports = router;

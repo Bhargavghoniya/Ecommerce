@@ -3,6 +3,9 @@ const {Cart} = require('../model/Cart');
 const {User} = require('../model/User');
 const {Product} = require('../model/Product');
 const { model } = require('mongoose');
+require("dotenv").config();
+const sendEmail = require('../utils/userEmail');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 
 
@@ -289,5 +292,78 @@ const removeCart = async (req, res) => {
 
 
 
+// payment
+const payment = async (req, res) => {
+  try {
+    const { token } = req.headers;
+    const decodedToken = jwt.verify(token, "supersecret");
 
-module.exports = {cart,addCart,updateCart,removeCart};
+    const user = await User.findOne({ email: decodedToken.email }).populate({
+      path: 'cart',
+      populate: {
+        path: 'products.product',
+        model: 'Product'
+      }
+    });
+
+    if (!user || !user.cart || user.cart.products.length === 0) {
+      return res.status(404).json({ message: "Cart not found" });
+    }
+
+    // Prepare line items
+    const lineItems = user.cart.products.map((item) => {
+      return {
+        price_data: {
+          currency: 'inr',
+          product_data: {
+            name: item.product.name,
+            images: [item.product.image],
+          },
+          unit_amount: parseInt(item.product.price) * 100, // Convert to paisa
+        },
+        quantity: item.quantity,
+      };
+    });
+
+    const currentUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      mode: 'payment',
+      success_url: `${currentUrl}/success`,
+      cancel_url: `${currentUrl}/cancel`
+    });
+
+
+    //send email to user
+    await sendEmail(user.email, user.cart.products.map((item) => ({
+      name: item.product.name,
+      price: item.product.price,
+      quantity: item.quantity
+    })))
+    
+
+    // Empty cart
+    user.cart.products = [];
+    user.cart.total = 0;
+    await user.cart.save();
+    await user.save();
+
+    res.status(200).json({
+      message: "Payment successful",
+      url: session.url,
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({
+      message: "Internal server error"
+    });
+  }
+};
+
+
+
+
+module.exports = {cart,addCart,updateCart,removeCart,payment};
